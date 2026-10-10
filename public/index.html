@@ -1,1 +1,73 @@
-<h1>ok</h1>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fire TV Debloater</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <h1>Fire TV Debloater</h1>
+    <ol class="steps" id="steps">
+      <li data-step="connect">1 Connect</li>
+      <li data-step="choose">2 Choose apps</li>
+      <li data-step="review">3 Review</li>
+      <li data-step="done">4 Done</li>
+    </ol>
+    <div id="error" class="error" hidden></div>
+
+    <section id="connect">
+      <h2>Connect to your Fire TV</h2>
+      <p>Your computer and Fire TV must be on the same Wi-Fi network.</p>
+      <div class="row">
+        <input id="host" placeholder="Fire TV IP address, e.g. 192.168.1.42" autocomplete="off">
+        <button id="find" class="secondary">Find my Fire TV</button>
+      </div>
+      <div id="found" class="row"></div>
+      <button id="connectBtn">Connect</button>
+      <details>
+        <summary>How do I set up my Fire TV?</summary>
+        <ol class="howto">
+          <li><b>Open Settings</b> on your Fire TV and go to <i>My Fire TV</i> (sometimes under <i>Device &amp; Software</i>).</li>
+          <li>Choose <i>About</i> and click your device name (or <i>Fire TV Stick</i>) <b>7 times</b> until it says you are a developer.</li>
+          <li>Go back, open <i>Developer Options</i>, and turn <b>ADB debugging</b> on. Turn on <i>Apps from Unknown Sources</i> too if you see it.</li>
+          <li>Find your IP address under <i>About &rarr; Network</i> and type it above.</li>
+          <li>After you click Connect, <b>look at the TV</b>: choose <i>Allow</i> (tick "Always allow from this computer").</li>
+        </ol>
+        <p class="hint">Menu names differ a little between Fire OS versions. Look for the closest match.</p>
+      </details>
+    </section>
+
+    <section id="choose" hidden>
+      <h2>Choose apps to remove</h2>
+      <p>The safest picks are already selected. Everything here can be restored later.</p>
+      <div id="appList" class="apps"></div>
+      <p id="protectedNote" class="hint"></p>
+      <button id="toReview">Next: review</button>
+    </section>
+
+    <section id="review" hidden>
+      <h2>Review</h2>
+      <p>These apps will be removed from your Fire TV. You can undo this.</p>
+      <ul id="reviewList" class="plain"></ul>
+      <div class="row">
+        <button id="back" class="secondary">Back</button>
+        <button id="removeBtn" class="danger">Remove</button>
+      </div>
+    </section>
+
+    <section id="done" hidden>
+      <h2>Done</h2>
+      <div id="doneSummary"></div>
+      <h3>Removed apps</h3>
+      <div id="removedList" class="apps"></div>
+      <div class="row">
+        <button id="undoAll" class="secondary">Undo everything</button>
+        <button id="again" class="secondary">Start over</button>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
