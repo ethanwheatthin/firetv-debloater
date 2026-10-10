@@ -22,7 +22,7 @@ describe("connect", () => {
     await expect(createAdb(exec).connect("192.168.1.5")).rejects.toMatchObject({ kind: "unauthorized" });
   });
   it("throws unauthorized on 'unauthorized' output", async () => {
-    const { exec } = fake({ "connect 192.168.1.5:5555": { stdout: "connected to 192.168.1.5:5555\n" }, "get-state": { stdout: "unauthorized" } });
+    const { exec } = fake({ "connect 192.168.1.5:5555": { stdout: "connected to 192.168.1.5:5555\n" }, "-s 192.168.1.5:5555 get-state": { stdout: "unauthorized" } });
     await expect(createAdb(exec).connect("192.168.1.5")).rejects.toMatchObject({ kind: "unauthorized" });
   });
   it("throws offline when it cannot connect", async () => {
