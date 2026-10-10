@@ -6,7 +6,9 @@ A free, open-source tool that removes bloatware from your Fire TV through a simp
 
 - Apps are removed with `pm uninstall -k --user 0`. That hides and stops the app for your user but leaves it on the TV, so **every removal can be undone** (per app, or "Undo everything").
 - A protected list of system apps (launcher, setup, settings, and so on) is enforced by the server and can never be removed, even if someone tampers with the page.
-- Only apps on a curated list can be removed. Advanced mode is not in version 1.
+- By default only apps on a curated list can be changed. **Advanced mode** ("Show all apps on my TV") lists every package on the TV, with search and filters, and lets you **Disable** (`pm disable-user`, undo with `pm enable`) or **Remove** it. The protected list still applies there, so core system apps stay locked.
+- Restore only works on apps this tool removed or disabled (tracked in a local log) or that are on the curated list.
+- Roku devices can't be used: Roku has no ADB, so this tool is Fire TV only.
 
 > **Important: the curated list is unverified.** Every entry in `data/curated.json` is marked `"verified": false`. The package names were drafted without access to a real Fire TV. Test on your own device and fix or remove entries before you recommend this to anyone. Please report what you find.
 

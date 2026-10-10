@@ -12,10 +12,13 @@ const calls: string[] = [];
 let connectError: AdbError | null = null;
 const adb: Adb = {
   connect: async () => { if (connectError) throw connectError; },
-  installedPackages: async () => ["com.amazon.tv.csapp", "com.amazon.music.tv"],
+  installedPackages: async () => ["com.amazon.tv.csapp", "com.amazon.music.tv", "com.example.thing"],
   removedPackages: async () => ["com.amazon.ags.app"],
   removeForUser: async (p) => { calls.push(`remove ${p}`); },
   restore: async (p) => { calls.push(`restore ${p}`); },
+  disableForUser: async (p) => { calls.push(`disable ${p}`); },
+  enable: async (p) => { calls.push(`enable ${p}`); },
+  packageStates: async () => ({ installed: ["com.amazon.tv.csapp", "com.example.thing", "com.amazon.tv.launcher"], system: ["com.amazon.tv.launcher"], disabled: [] }),
   pullApk: async () => new Uint8Array(),
 };
 
@@ -117,5 +120,31 @@ describe("review fixes: cross-site protection", () => {
   it("returns a 400 or 404 (not 500) for a malformed URL escape", async () => {
     const res = await fetch(base + "/%E0%A4%A");
     expect([400, 404]).toContain(res.status);
+  });
+});
+
+describe("advanced API", () => {
+  it("lists every installed package with locked/system/curated flags", async () => {
+    const body = await (await fetch(base + "/api/all-apps")).json();
+    const by = Object.fromEntries(body.apps.map((a: any) => [a.pkg, a]));
+    expect(by["com.amazon.tv.launcher"]).toMatchObject({ locked: true, system: true });
+    expect(by["com.example.thing"]).toMatchObject({ locked: false, curated: false });
+    expect(by["com.amazon.tv.csapp"]).toMatchObject({ locked: false, curated: true, name: "Customer Service / Help" });
+  });
+  it("refuses a non-curated package without advanced, allows it with advanced", async () => {
+    calls.length = 0;
+    expect((await post("/api/remove", { packages: ["com.example.thing"] })).status).toBe(400);
+    const res = await post("/api/remove", { packages: ["com.example.thing"], advanced: true, mode: "disable" });
+    expect(res.status).toBe(200);
+    expect(calls).toEqual(["disable com.example.thing"]);
+  });
+  it("never allows a protected package even with advanced", async () => {
+    calls.length = 0;
+    const res = await post("/api/remove", { packages: ["com.amazon.tv.launcher"], advanced: true });
+    expect(res.status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+  it("rejects an unknown mode", async () => {
+    expect((await post("/api/remove", { packages: ["com.amazon.tv.csapp"], mode: "nuke" })).status).toBe(400);
   });
 });

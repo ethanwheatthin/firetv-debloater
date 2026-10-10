@@ -15,6 +15,9 @@ function mockAdb(over: Partial<Adb> = {}): Adb & { removed: string[] } {
     removedPackages: async () => [],
     removeForUser: async (p) => { removed.push(p); },
     restore: async () => {},
+    disableForUser: async () => {},
+    enable: async () => {},
+    packageStates: async () => ({ installed: [], system: [], disabled: [] }),
     pullApk: async () => new Uint8Array(),
     ...over,
   };
@@ -122,5 +125,48 @@ describe("review fixes", () => {
   });
   it("restoreApps rejects packages that are not on the curated list", async () => {
     await expect(restoreApps(mockAdb(), newLog(), ["com.example.other"])).rejects.toBeInstanceOf(RejectedError);
+  });
+});
+
+describe("advanced mode", () => {
+  const adv = () => mockAdb({ installedPackages: async () => ["com.example.thing", "com.amazon.tv.launcher", "com.amazon.tv.csapp"] });
+  it("rejects non-curated packages unless advanced is on", async () => {
+    await expect(removeApps(adv(), newLog(), ["com.example.thing"])).rejects.toBeInstanceOf(RejectedError);
+    const r = await removeApps(adv(), newLog(), ["com.example.thing"], { advanced: true });
+    expect(r.removed).toEqual(["com.example.thing"]);
+  });
+  it("still rejects protected packages in advanced mode and touches nothing", async () => {
+    const a = adv();
+    await expect(removeApps(a, newLog(), ["com.example.thing", "com.amazon.tv.launcher"], { advanced: true })).rejects.toBeInstanceOf(RejectedError);
+    expect(a.removed).toEqual([]);
+  });
+  it("disable mode calls disableForUser, not removeForUser, and logs the mode", async () => {
+    const disabled: string[] = [];
+    const a = mockAdb({ installedPackages: async () => ["com.example.thing"], disableForUser: async (p) => { disabled.push(p); } });
+    const log = newLog();
+    const r = await removeApps(a, log, ["com.example.thing"], { advanced: true, mode: "disable" });
+    expect(r.removed).toEqual(["com.example.thing"]);
+    expect(disabled).toEqual(["com.example.thing"]);
+    expect(a.removed).toEqual([]);
+    expect(log.entries()[0]).toMatchObject({ pkg: "com.example.thing", mode: "disable" });
+  });
+  it("restore enables a disabled package and installs-existing a removed one", async () => {
+    const enabled: string[] = [];
+    const restored: string[] = [];
+    const a = mockAdb({
+      packageStates: async () => ({ installed: ["com.example.thing"], system: [], disabled: ["com.example.thing"] }),
+      removedPackages: async () => ["com.amazon.tv.csapp"],
+      enable: async (p) => { enabled.push(p); },
+      restore: async (p) => { restored.push(p); },
+    });
+    const log = newLog();
+    log.record("com.example.thing", "disable");
+    const r = await restoreApps(a, log, ["com.example.thing", "com.amazon.tv.csapp"]);
+    expect(enabled).toEqual(["com.example.thing"]);
+    expect(restored).toEqual(["com.amazon.tv.csapp"]);
+    expect(r.restored).toEqual(["com.example.thing", "com.amazon.tv.csapp"]);
+  });
+  it("restore refuses packages that are neither curated nor in the log", async () => {
+    await expect(restoreApps(mockAdb(), newLog(), ["com.example.thing"])).rejects.toBeInstanceOf(RejectedError);
   });
 });

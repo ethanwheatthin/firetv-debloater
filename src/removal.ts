@@ -1,6 +1,8 @@
 import { AdbError, type Adb } from "./adb.js";
 import { isProtected, isValidPackageName, loadCurated } from "./lists.js";
-import type { Log } from "./log.js";
+import type { Log, Mode } from "./log.js";
+
+export type { Mode } from "./log.js";
 
 export class RejectedError extends Error {
   constructor(public pkg: string, reason: string) {
@@ -23,18 +25,25 @@ export interface RestoreResult {
   notAttempted: string[];
 }
 
-function validate(pkgs: string[]): void {
+export interface RemoveOptions {
+  /** Allow packages that are not on the curated list. Protected packages are still refused. */
+  advanced?: boolean;
+  mode?: Mode;
+}
+
+function validate(pkgs: string[], advanced: boolean): void {
   const curated = new Set(loadCurated().map((a) => a.pkg));
   for (const p of pkgs) {
     if (!isValidPackageName(p)) throw new RejectedError(p, "not a valid package name");
     if (isProtected(p)) throw new RejectedError(p, "protected; this app is needed by the Fire TV");
-    if (!curated.has(p)) throw new RejectedError(p, "not on the list of removable apps");
+    if (!advanced && !curated.has(p)) throw new RejectedError(p, "not on the list of removable apps");
   }
 }
 
-export async function removeApps(adb: Adb, log: Log, requested: string[]): Promise<RemovalResult> {
+export async function removeApps(adb: Adb, log: Log, requested: string[], opts: RemoveOptions = {}): Promise<RemovalResult> {
+  const mode: Mode = opts.mode ?? "remove";
   const pkgs = [...new Set(requested)];
-  validate(pkgs);
+  validate(pkgs, opts.advanced === true);
   const installed = new Set(await adb.installedPackages());
   const result: RemovalResult = { removed: [], skipped: [], errors: [], notAttempted: [] };
   const todo: string[] = [];
@@ -45,8 +54,9 @@ export async function removeApps(adb: Adb, log: Log, requested: string[]): Promi
   for (let i = 0; i < todo.length; i++) {
     const pkg = todo[i];
     try {
-      await adb.removeForUser(pkg);
-      log.record(pkg);
+      if (mode === "disable") await adb.disableForUser(pkg);
+      else await adb.removeForUser(pkg);
+      log.record(pkg, mode);
       result.removed.push(pkg);
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
@@ -64,16 +74,29 @@ export async function removeApps(adb: Adb, log: Log, requested: string[]): Promi
   return result;
 }
 
+/** Packages this tool may bring back: the curated list plus anything it recorded removing or disabling. */
+export function restorable(log: Log): Set<string> {
+  return new Set([...loadCurated().map((a) => a.pkg), ...log.entries().map((e) => e.pkg)]);
+}
+
 export async function restoreApps(adb: Adb, log: Log, requested: string[]): Promise<RestoreResult> {
   const pkgs = [...new Set(requested)];
-  validate(pkgs);
+  const allowed = restorable(log);
+  for (const p of pkgs) {
+    if (!isValidPackageName(p)) throw new RejectedError(p, "not a valid package name");
+    if (!allowed.has(p)) throw new RejectedError(p, "this tool didn't remove or disable it, so it won't restore it");
+  }
   const removedOnTv = new Set(await adb.removedPackages());
+  const disabledOnTv = new Set((await adb.packageStates()).disabled);
   const result: RestoreResult = { restored: [], notAttempted: [] };
   for (let i = 0; i < pkgs.length; i++) {
     const pkg = pkgs[i];
-    if (!removedOnTv.has(pkg)) { log.clear(pkg); continue; }
+    const isRemoved = removedOnTv.has(pkg);
+    const isDisabled = disabledOnTv.has(pkg);
+    if (!isRemoved && !isDisabled) { log.clear(pkg); continue; }
     try {
-      await adb.restore(pkg);
+      if (isDisabled) await adb.enable(pkg);
+      else await adb.restore(pkg);
       log.clear(pkg);
       result.restored.push(pkg);
     } catch (e) {

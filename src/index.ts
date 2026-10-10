@@ -23,13 +23,21 @@ function findAdb(): string {
 
 function mockAdb(): Adb {
   const gone = new Set<string>();
-  const all = ["com.amazon.tv.csapp", "com.amazon.tv.legal.notices", "com.amazon.ags.app", "com.amazon.music.tv", "com.amazon.recess", "com.amazon.tv.launcher"];
+  const off = new Set<string>();
+  const all = ["com.amazon.tv.csapp", "com.amazon.tv.legal.notices", "com.amazon.ags.app", "com.amazon.music.tv", "com.amazon.recess", "com.amazon.tv.launcher", "com.example.sideloaded", "com.example.otherapp"];
   return {
     connect: async () => {},
     installedPackages: async () => all.filter((p) => !gone.has(p)),
     removedPackages: async () => [...gone],
     removeForUser: async (p) => { gone.add(p); },
     restore: async (p) => { gone.delete(p); },
+    disableForUser: async (p) => { off.add(p); },
+    enable: async (p) => { off.delete(p); },
+    packageStates: async () => ({
+      installed: all.filter((p) => !gone.has(p)),
+      system: all.filter((p) => p.startsWith("com.amazon.")),
+      disabled: [...off],
+    }),
     pullApk: async () => { throw new Error("mock: no APKs"); },
   };
 }
@@ -68,11 +76,17 @@ function openBrowser(url: string): void {
 }
 
 const adb = mock ? mockAdb() : realAdb();
+let iconQueue: Promise<unknown> = Promise.resolve();
+const queuedIcon = (pkg: string) => {
+  const next = iconQueue.then(() => getIcon((p) => adb.pullApk(p), pkg, join(dataHome, "icons")));
+  iconQueue = next.catch(() => {});
+  return next;
+};
 const server = createServer({
   adb,
   log: createLog(join(dataHome, "log.json")),
   publicDir: join(root, "public"),
-  getIcon: (pkg) => getIcon((p) => adb.pullApk(p), pkg, join(dataHome, "icons")),
+  getIcon: queuedIcon,
   discover: () => discover({ localIps: localIPv4(), probe: probePort5555 }),
 });
 

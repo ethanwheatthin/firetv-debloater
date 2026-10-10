@@ -106,3 +106,37 @@ describe("review fixes: errors, serial, listings", () => {
     expect(calls[calls.length - 1]).toEqual(["-s", "192.168.1.5:5555", "shell", "pm", "uninstall", "-k", "--user", "0", "com.a.b"]);
   });
 });
+
+describe("advanced mode adb methods", () => {
+  it("disableForUser runs pm disable-user --user 0 and accepts the disabled-user state", async () => {
+    const { exec, calls } = fake({ "shell pm disable-user --user 0 com.a.b": { stdout: "Package com.a.b new state: disabled-user" } });
+    await createAdb(exec).disableForUser("com.a.b");
+    expect(calls[0]).toEqual(["shell", "pm", "disable-user", "--user", "0", "com.a.b"]);
+  });
+  it("disableForUser throws failed when pm refuses, offline when silent", async () => {
+    const f1 = fake({ "shell pm disable-user --user 0 com.a.b": { stdout: "Security exception: Permission denied" } });
+    await expect(createAdb(f1.exec).disableForUser("com.a.b")).rejects.toMatchObject({ kind: "failed" });
+    const f2 = fake({ "shell pm disable-user --user 0 com.a.b": { stdout: "", code: -1 } });
+    await expect(createAdb(f2.exec).disableForUser("com.a.b")).rejects.toMatchObject({ kind: "offline" });
+  });
+  it("enable runs pm enable --user 0", async () => {
+    const { exec, calls } = fake({ "shell pm enable --user 0 com.a.b": { stdout: "Package com.a.b new state: enabled" } });
+    await createAdb(exec).enable("com.a.b");
+    expect(calls[0]).toEqual(["shell", "pm", "enable", "--user", "0", "com.a.b"]);
+  });
+  it("rejects invalid package names for disable/enable", async () => {
+    const { exec, calls } = fake({});
+    const adb = createAdb(exec);
+    await expect(adb.disableForUser("x; reboot")).rejects.toBeInstanceOf(AdbError);
+    await expect(adb.enable("x y")).rejects.toBeInstanceOf(AdbError);
+    expect(calls.length).toBe(0);
+  });
+  it("packageStates returns installed, system and disabled sets; disabled may be empty", async () => {
+    const { exec } = fake({
+      "shell pm list packages --user 0": { stdout: "package:com.a.b\npackage:com.c.d\n" },
+      "shell pm list packages -s --user 0": { stdout: "package:com.a.b\n" },
+      "shell pm list packages -d --user 0": { stdout: "" },
+    });
+    expect(await createAdb(exec).packageStates()).toEqual({ installed: ["com.a.b", "com.c.d"], system: ["com.a.b"], disabled: [] });
+  });
+});

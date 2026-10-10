@@ -14,5 +14,13 @@
   "com.amazon.settings*",
   "com.amazon.bueller*",
   "com.amazon.ssm*",
-  "com.amazon.shoptv.client"
+  "com.amazon.shoptv.client",
+  "com.google.*",
+  "com.qualcomm.*",
+  "com.mediatek.*",
+  "com.broadcom.*",
+  "com.amlogic.*",
+  "com.realtek.*",
+  "com.amazon.cardinal*",
+  "com.amazon.firehomestarter*"
 ]

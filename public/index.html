@@ -42,6 +42,27 @@
     <section id="choose" hidden>
       <h2>Choose apps to remove</h2>
       <p>The safest picks are already selected. Everything here can be restored later.</p>
+      <label class="toggle"><input type="checkbox" id="advToggle"> Show all apps on my TV (advanced)</label>
+      <div id="advBox" hidden>
+        <div class="error">
+          <b>Careful.</b> This lists every app on your Fire TV, not just known bloatware. Apps the Fire TV needs to start up, sign in, or show the home screen are locked and can't be changed, but other system apps can still break features (voice remote, updates, certain apps).
+          Change a few at a time, restart the TV between changes, and prefer <b>Disable</b>.
+        </div>
+        <label class="toggle"><input type="checkbox" id="advAck"> I understand the risks</label>
+        <div class="row">
+          <input id="search" placeholder="Search by name or package, e.g. amazon">
+        </div>
+        <div class="row">
+          <label class="toggle"><input type="checkbox" id="hideSystem"> Hide system apps</label>
+          <label class="toggle"><input type="checkbox" id="onlyCurated"> Only known bloatware</label>
+        </div>
+        <div class="row" id="modeRow">
+          <b>Action:</b>
+          <label class="toggle"><input type="radio" name="mode" value="disable" checked> Disable (recommended; undo with Restore)</label>
+          <label class="toggle"><input type="radio" name="mode" value="remove"> Remove for this user (undo with Restore)</label>
+        </div>
+        <p class="hint" id="advCount"></p>
+      </div>
       <div id="appList" class="apps"></div>
       <p id="protectedNote" class="hint"></p>
       <button id="toReview">Next: review</button>
@@ -49,7 +70,7 @@
 
     <section id="review" hidden>
       <h2>Review</h2>
-      <p>These apps will be removed from your Fire TV. You can undo this.</p>
+      <p id="reviewIntro">These apps will be changed on your Fire TV. You can undo this.</p>
       <ul id="reviewList" class="plain"></ul>
       <div class="row">
         <button id="back" class="secondary">Back</button>
@@ -60,7 +81,7 @@
     <section id="done" hidden>
       <h2>Done</h2>
       <div id="doneSummary"></div>
-      <h3>Removed apps</h3>
+      <h3>Removed or disabled apps</h3>
       <div id="removedList" class="apps"></div>
       <div class="row">
         <button id="undoAll" class="secondary">Undo everything</button>

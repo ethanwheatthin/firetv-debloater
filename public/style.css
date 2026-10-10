@@ -28,3 +28,9 @@ details { margin-top:20px; background:var(--card); border:1px solid var(--line);
 .howto li { margin:8px 0; }
 ul.plain { list-style:none; padding:0; display:grid; gap:8px; }
 .ok { color:#5ad17c; } .warn { color:#f0c040; }
+
+.toggle { display:inline-flex; gap:8px; align-items:center; margin:4px 12px 4px 0; cursor:pointer; }
+.toggle input { flex:none; min-width:0; }
+.app.locked { opacity:.55; }
+.pkg { color:var(--muted); font-size:12px; word-break:break-all; }
+.chip { font-size:12px; padding:2px 8px; border-radius:10px; margin-left:6px; background:#2b3340; color:var(--muted); }

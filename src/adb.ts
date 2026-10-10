@@ -18,6 +18,9 @@ export interface Adb {
   removedPackages(): Promise<string[]>;
   removeForUser(pkg: string): Promise<void>;
   restore(pkg: string): Promise<void>;
+  disableForUser(pkg: string): Promise<void>;
+  enable(pkg: string): Promise<void>;
+  packageStates(): Promise<{ installed: string[]; system: string[]; disabled: string[] }>;
   pullApk(pkg: string): Promise<Uint8Array>;
 }
 
@@ -53,13 +56,13 @@ export function createAdb(
   const exec: Exec = (args) => rawExec(serial && args[0] !== "connect" ? ["-s", serial, ...args] : args);
   const unreachable = () => new AdbError("offline", "Lost contact with the Fire TV. Check that it is on and on the same Wi-Fi.");
 
-  async function listPackages(args: string[]): Promise<string[]> {
+  async function listPackages(args: string[], allowEmpty = false): Promise<string[]> {
     const r = await exec(args);
     const bad = classify(`${r.stdout}
 ${r.stderr}`);
     if (bad) throw new AdbError(bad, bad === "unauthorized" ? UNAUTHORIZED_MSG : "Couldn't read the app list from the Fire TV.");
     const pkgs = parsePackages(r.stdout);
-    if (r.code !== 0 || pkgs.length === 0) throw unreachable();
+    if (r.code !== 0 || (pkgs.length === 0 && !allowEmpty)) throw unreachable();
     return pkgs;
   }
 
@@ -108,6 +111,33 @@ ${r.stderr}`) ?? "offline", `Couldn't remove ${pkg}: ${detail || "no response fr
       const kind = classify(`${r.stdout}
 ${r.stderr}`) ?? (r.stdout.trim() && r.code === 0 ? "failed" : "offline");
       throw new AdbError(kind, `Couldn't restore ${pkg}: ${detail || "no response from the TV"}`);
+    },
+
+    async disableForUser(pkg) {
+      needPackage(pkg);
+      const r = await exec(["shell", "pm", "disable-user", "--user", "0", pkg]);
+      if (/new state: disabled/i.test(r.stdout)) return;
+      const detail = r.stdout.trim() || r.stderr.trim();
+      const kind = classify(`${r.stdout}
+${r.stderr}`) ?? (r.stdout.trim() && r.code === 0 ? "failed" : r.stdout.trim() ? "failed" : "offline");
+      throw new AdbError(kind, `Couldn't disable ${pkg}: ${detail || "no response from the TV"}`);
+    },
+
+    async enable(pkg) {
+      needPackage(pkg);
+      const r = await exec(["shell", "pm", "enable", "--user", "0", pkg]);
+      if (/new state: enabled/i.test(r.stdout)) return;
+      const detail = r.stdout.trim() || r.stderr.trim();
+      const kind = classify(`${r.stdout}
+${r.stderr}`) ?? (r.stdout.trim() ? "failed" : "offline");
+      throw new AdbError(kind, `Couldn't enable ${pkg}: ${detail || "no response from the TV"}`);
+    },
+
+    async packageStates() {
+      const installed = await listPackages(["shell", "pm", "list", "packages", "--user", "0"]);
+      const system = await listPackages(["shell", "pm", "list", "packages", "-s", "--user", "0"], true);
+      const disabled = await listPackages(["shell", "pm", "list", "packages", "-d", "--user", "0"], true);
+      return { installed, system, disabled };
     },
 
     async pullApk(pkg) {

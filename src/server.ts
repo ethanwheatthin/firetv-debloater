@@ -2,7 +2,7 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { AdbError, type Adb } from "./adb.js";
-import { loadCurated } from "./lists.js";
+import { isProtected, isValidPackageName, loadCurated } from "./lists.js";
 import type { Log } from "./log.js";
 import { removeApps, restoreApps, RejectedError } from "./removal.js";
 import { readFileSync } from "node:fs";
@@ -87,13 +87,45 @@ export function createServer(deps: ServerDeps): http.Server {
           return send(res, 200, { apps, protectedCount: protectedCount() });
         }
         if (req.method === "POST" && url.pathname === "/api/remove") {
-          const { packages } = await readBody(req);
+          const { packages, advanced, mode } = await readBody(req);
           if (!Array.isArray(packages)) return send(res, 400, { error: "packages must be a list" });
-          return send(res, 200, await removeApps(adb, log, packages.map(String)));
+          if (mode !== undefined && mode !== "remove" && mode !== "disable") return send(res, 400, { error: "mode must be remove or disable" });
+          return send(res, 200, await removeApps(adb, log, packages.map(String), { advanced: advanced === true, mode }));
+        }
+        if (req.method === "GET" && url.pathname === "/api/all-apps") {
+          const { installed, system, disabled } = await adb.packageStates();
+          const sys = new Set(system);
+          const off = new Set(disabled);
+          const byPkg = new Map(curated.map((a) => [a.pkg, a]));
+          const apps = installed.map((pkg) => {
+            const c = byPkg.get(pkg);
+            return {
+              pkg,
+              name: c?.name ?? pkg,
+              curated: !!c,
+              tag: c?.tag ?? null,
+              explanation: c?.explanation ?? null,
+              system: sys.has(pkg),
+              disabled: off.has(pkg),
+              locked: isProtected(pkg),
+            };
+          });
+          apps.sort((x, y) => Number(y.curated) - Number(x.curated) || x.pkg.localeCompare(y.pkg));
+          return send(res, 200, { apps });
         }
         if (req.method === "GET" && url.pathname === "/api/removed") {
           const gone = new Set(await adb.removedPackages());
-          return send(res, 200, { apps: curated.filter((a) => gone.has(a.pkg)) });
+          const off = new Set((await adb.packageStates()).disabled);
+          const byPkg = new Map(curated.map((a) => [a.pkg, a]));
+          const logged = new Map(log.entries().map((e) => [e.pkg, e]));
+          const candidates = new Set([...byPkg.keys(), ...logged.keys()]);
+          const apps = [...candidates]
+            .filter((pkg) => gone.has(pkg) || off.has(pkg))
+            .map((pkg) => {
+              const c = byPkg.get(pkg);
+              return { pkg, name: c?.name ?? pkg, tag: c?.tag ?? null, explanation: c?.explanation ?? null, mode: off.has(pkg) ? "disable" : "remove" };
+            });
+          return send(res, 200, { apps });
         }
         if (req.method === "POST" && url.pathname === "/api/restore") {
           const { packages } = await readBody(req);
@@ -102,7 +134,7 @@ export function createServer(deps: ServerDeps): http.Server {
         }
         if (req.method === "GET" && url.pathname.startsWith("/api/icon/")) {
           const pkg = decodeURIComponent(url.pathname.slice("/api/icon/".length));
-          if (!curated.some((a) => a.pkg === pkg)) return send(res, 404, { error: "unknown app" });
+          if (!isValidPackageName(pkg)) return send(res, 404, { error: "unknown app" });
           const icon = await deps.getIcon(pkg);
           if (!icon) return send(res, 404, { error: "no icon" });
           res.writeHead(200, { "content-type": "image/png", "cache-control": "max-age=3600" });

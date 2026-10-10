@@ -1,10 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-export interface LogEntry { pkg: string; at: string }
+export type Mode = "remove" | "disable";
+
+export interface LogEntry { pkg: string; at: string; mode: Mode }
 
 export interface Log {
-  record(pkg: string): void;
+  record(pkg: string, mode?: Mode): void;
   entries(): LogEntry[];
   clear(pkg: string): void;
 }
@@ -18,9 +20,9 @@ export function createLog(filePath: string): Log {
     writeFileSync(filePath, JSON.stringify(entries, null, 2));
   };
   return {
-    record(pkg) {
+    record(pkg, mode = "remove") {
       const rest = read().filter((e) => e.pkg !== pkg);
-      write([...rest, { pkg, at: new Date().toISOString() }]);
+      write([...rest, { pkg, at: new Date().toISOString(), mode }]);
     },
     entries: read,
     clear(pkg) { write(read().filter((e) => e.pkg !== pkg)); },

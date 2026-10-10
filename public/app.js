@@ -4,7 +4,9 @@ const TAG_LABELS = {
   "not-recommended": "Not recommended",
 };
 const $ = (id) => document.getElementById(id);
-let apps = [];
+let apps = [];          // what the Choose step is showing
+let advanced = false;   // "show all apps" mode
+const selectedPkgs = new Set(); // survives re-filtering in advanced mode
 
 async function api(path, body) {
   const res = await fetch(path, body === undefined ? undefined : {
@@ -29,41 +31,71 @@ function el(tag, props = {}, ...kids) {
   return n;
 }
 
-function appRow(a, { checkbox = false } = {}) {
-  const img = el("img", { alt: "", src: `/api/icon/${encodeURIComponent(a.pkg)}` });
+const mode = () => document.querySelector('input[name="mode"]:checked')?.value || "remove";
+
+function appRow(a, { checkbox = false, locked = false, extra = "" } = {}) {
+  const img = el("img", { alt: "", loading: "lazy", src: `/api/icon/${encodeURIComponent(a.pkg)}` });
   img.onerror = () => { img.onerror = null; img.src = "/placeholder.svg"; };
-  const tag = el("span", { className: `tag ${a.tag}`, textContent: TAG_LABELS[a.tag] });
-  const info = el("div", { className: "info" },
-    el("div", { className: "name" }, a.name, tag),
-    el("div", { className: "desc", textContent: a.explanation }));
-  const row = el("label", { className: "app" });
+  const nameLine = el("div", { className: "name" }, a.name || a.pkg);
+  if (a.tag) nameLine.append(el("span", { className: `tag ${a.tag}`, textContent: TAG_LABELS[a.tag] }));
+  if (a.system) nameLine.append(el("span", { className: "chip", textContent: "system" }));
+  if (a.disabled) nameLine.append(el("span", { className: "chip", textContent: "disabled" }));
+  if (locked) nameLine.append(el("span", { className: "chip", textContent: "🔒 locked" }));
+  if (extra) nameLine.append(el("span", { className: "chip", textContent: extra }));
+  const info = el("div", { className: "info" }, nameLine);
+  if (a.explanation) info.append(el("div", { className: "desc", textContent: a.explanation }));
+  if (a.name && a.name !== a.pkg) info.append(el("div", { className: "pkg", textContent: a.pkg }));
+  const row = el("label", { className: "app" + (locked ? " locked" : "") });
   if (checkbox) {
-    const cb = el("input", { type: "checkbox", checked: a.selected });
+    const cb = el("input", { type: "checkbox", checked: selectedPkgs.has(a.pkg), disabled: locked });
     cb.style.flex = "none"; cb.style.minWidth = "0";
-    cb.onchange = () => { a.selected = cb.checked; };
+    cb.onchange = () => { if (cb.checked) selectedPkgs.add(a.pkg); else selectedPkgs.delete(a.pkg); updateCount(); };
     row.append(cb);
   }
   row.append(img, info);
   return row;
 }
 
-async function loadApps() {
-  const data = await api("/api/apps");
-  apps = data.apps.filter((a) => a.installed);
+function updateCount() {
+  if (advanced) $("advCount").textContent = `${selectedPkgs.size} selected of ${apps.length} apps.`;
+}
+
+function renderChoose() {
   const list = $("appList");
   list.replaceChildren();
-  if (!apps.length) list.append(el("p", { className: "hint", textContent: "None of the known bloatware apps are installed on this TV." }));
-  for (const a of apps) list.append(appRow(a, { checkbox: true }));
-  $("protectedNote").textContent = `${data.protectedCount} system app rules are locked and can never be removed.`;
+  let shown = apps;
+  if (advanced) {
+    const q = $("search").value.trim().toLowerCase();
+    if (q) shown = shown.filter((a) => a.pkg.toLowerCase().includes(q) || (a.name || "").toLowerCase().includes(q));
+    if ($("hideSystem").checked) shown = shown.filter((a) => !a.system);
+    if ($("onlyCurated").checked) shown = shown.filter((a) => a.curated);
+    updateCount();
+  }
+  if (!shown.length) list.append(el("p", { className: "hint", textContent: advanced ? "No apps match." : "None of the known bloatware apps are installed on this TV." }));
+  for (const a of shown) list.append(appRow(a, { checkbox: true, locked: !!a.locked }));
+}
+
+async function loadApps() {
+  selectedPkgs.clear();
+  if (advanced) {
+    apps = (await api("/api/all-apps")).apps;
+    $("protectedNote").textContent = "Locked apps are needed by the Fire TV and can never be changed.";
+  } else {
+    const data = await api("/api/apps");
+    apps = data.apps.filter((a) => a.installed);
+    for (const a of apps) if (a.selected) selectedPkgs.add(a.pkg);
+    $("protectedNote").textContent = `${data.protectedCount} system app rules are locked and can never be removed.`;
+  }
+  renderChoose();
 }
 
 async function loadRemoved() {
   const { apps: gone } = await api("/api/removed");
   const list = $("removedList");
   list.replaceChildren();
-  if (!gone.length) list.append(el("p", { className: "hint", textContent: "Nothing is currently removed." }));
+  if (!gone.length) list.append(el("p", { className: "hint", textContent: "Nothing is currently removed or disabled." }));
   for (const a of gone) {
-    const row = appRow(a);
+    const row = appRow(a, { extra: a.mode === "disable" ? "disabled" : "removed" });
     const btn = el("button", { className: "secondary", textContent: "Restore" });
     btn.onclick = async () => {
       btn.disabled = true;
@@ -74,6 +106,13 @@ async function loadRemoved() {
   }
   return gone;
 }
+
+$("advToggle").onchange = async () => {
+  advanced = $("advToggle").checked;
+  $("advBox").hidden = !advanced;
+  try { await loadApps(); } catch (e) { showError(e.message); }
+};
+for (const id of ["search", "hideSystem", "onlyCurated"]) $(id).oninput = renderChoose;
 
 $("find").onclick = async () => {
   showError("");
@@ -103,10 +142,16 @@ $("connectBtn").onclick = async () => {
 };
 
 $("toReview").onclick = () => {
-  const chosen = apps.filter((a) => a.selected);
-  if (!chosen.length) return showError("Pick at least one app to remove.");
+  const chosen = apps.filter((a) => selectedPkgs.has(a.pkg) && !a.locked);
+  if (!chosen.length) return showError("Pick at least one app.");
+  if (advanced && !$("advAck").checked) return showError("Tick \"I understand the risks\" to continue in advanced mode.");
+  const action = advanced ? mode() : "remove";
+  $("reviewIntro").textContent = action === "disable"
+    ? "These apps will be disabled on your Fire TV. You can turn them back on with Restore."
+    : "These apps will be removed for your user on the Fire TV. You can bring them back with Restore.";
   const ul = $("reviewList"); ul.replaceChildren();
   for (const a of chosen) ul.append(el("li", {}, appRow(a)));
+  $("removeBtn").textContent = action === "disable" ? `Disable ${chosen.length} app(s)` : `Remove ${chosen.length} app(s)`;
   go("review");
 };
 $("back").onclick = () => go("choose");
@@ -114,10 +159,14 @@ $("back").onclick = () => go("choose");
 $("removeBtn").onclick = async () => {
   $("removeBtn").disabled = true;
   try {
-    const r = await api("/api/remove", { packages: apps.filter((a) => a.selected).map((a) => a.pkg) });
+    const action = advanced ? mode() : "remove";
+    const packages = apps.filter((a) => selectedPkgs.has(a.pkg) && !a.locked).map((a) => a.pkg);
+    const r = await api("/api/remove", { packages, advanced, mode: action });
     const s = $("doneSummary"); s.replaceChildren();
-    s.append(el("p", { className: "ok", textContent: `Removed ${r.removed.length} app(s).` }));
-    for (const x of r.errors) s.append(el("p", { className: "warn", textContent: `Couldn't remove ${x.pkg}: ${x.reason}` }));
+    const verb = action === "disable" ? "Disabled" : "Removed";
+    s.append(el("p", { className: "ok", textContent: `${verb} ${r.removed.length} app(s).` }));
+    if (r.removed.length) s.append(el("p", { className: "hint", textContent: "Restart your Fire TV and check that everything still works before changing more." }));
+    for (const x of r.errors) s.append(el("p", { className: "warn", textContent: `Couldn't change ${x.pkg}: ${x.reason}` }));
     for (const x of r.skipped) s.append(el("p", { className: "warn", textContent: `Skipped ${x.pkg}: ${x.reason}` }));
     if (r.failed) s.append(el("p", { className: "warn", textContent: `Stopped at ${r.failed.pkg}: ${r.failed.reason}. ${r.notAttempted.length} app(s) were not attempted.` }));
     await loadRemoved();
