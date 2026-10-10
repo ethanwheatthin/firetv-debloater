@@ -1,0 +1,22 @@
+{
+  "name": "firetv-debloater",
+  "version": "0.1.0",
+  "description": "Safely remove bloatware from a Fire TV over ADB, through a simple web wizard.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  }
+}

@@ -1,0 +1,51 @@
+[
+  {
+    "pkg": "com.amazon.tv.csapp",
+    "name": "Customer Service / Help",
+    "tag": "safe",
+    "explanation": "Amazon's built-in help app. Settings and online support still work without it.",
+    "verified": false
+  },
+  {
+    "pkg": "com.amazon.tv.legal.notices",
+    "name": "Legal Notices",
+    "tag": "safe",
+    "explanation": "Displays legal text only. Nothing else depends on it.",
+    "verified": false
+  },
+  {
+    "pkg": "com.amazon.ags.app",
+    "name": "Amazon GameCircle",
+    "tag": "safe",
+    "explanation": "Old game leaderboard service that most apps no longer use.",
+    "verified": false
+  },
+  {
+    "pkg": "com.amazon.imdb.tv.android.app",
+    "name": "Freevee (IMDb TV)",
+    "tag": "safe",
+    "explanation": "Free ad-supported streaming app. Removing it hides it from the home screen.",
+    "verified": false
+  },
+  {
+    "pkg": "com.amazon.music.tv",
+    "name": "Amazon Music",
+    "tag": "loses-feature",
+    "explanation": "Removing it means you can't play Amazon Music on this TV.",
+    "verified": false
+  },
+  {
+    "pkg": "com.amazon.recess",
+    "name": "Amazon Games",
+    "tag": "safe",
+    "explanation": "Game store tile. Installed games from other stores are unaffected.",
+    "verified": false
+  },
+  {
+    "pkg": "com.amazon.ftv.screensaver",
+    "name": "Screensaver",
+    "tag": "loses-feature",
+    "explanation": "The idle-screen slideshow and ads. You'll get a plain dim screen instead.",
+    "verified": false
+  }
+]

@@ -1,0 +1,18 @@
+[
+  "android",
+  "com.android.*",
+  "com.amazon.tv.launcher",
+  "com.amazon.device.*",
+  "com.amazon.tv.settings*",
+  "com.amazon.tv.oobe*",
+  "com.amazon.dcp",
+  "com.amazon.imp",
+  "com.amazon.providers*",
+  "com.amazon.sync*",
+  "com.amazon.avod*",
+  "com.amazon.platform*",
+  "com.amazon.settings*",
+  "com.amazon.bueller*",
+  "com.amazon.ssm*",
+  "com.amazon.shoptv.client"
+]
