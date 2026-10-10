@@ -59,6 +59,15 @@ export function createServer(deps: ServerDeps): http.Server {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     try {
+      // Only this computer's own page may talk to us (blocks DNS rebinding and cross-site requests).
+      const port = req.socket.localPort;
+      const host = (req.headers.host ?? "").toLowerCase();
+      if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) return send(res, 403, { error: "forbidden" });
+      if (req.method === "POST") {
+        const origin = req.headers.origin;
+        if (origin && origin !== `http://127.0.0.1:${port}` && origin !== `http://localhost:${port}`) return send(res, 403, { error: "forbidden" });
+        if (!/^application\/json\b/i.test(req.headers["content-type"] ?? "")) return send(res, 415, { error: "expected JSON" });
+      }
       if (url.pathname.startsWith("/api/")) {
         if (req.method === "POST" && url.pathname === "/api/connect") {
           const { host } = await readBody(req);
@@ -89,7 +98,7 @@ export function createServer(deps: ServerDeps): http.Server {
         if (req.method === "POST" && url.pathname === "/api/restore") {
           const { packages } = await readBody(req);
           if (!Array.isArray(packages)) return send(res, 400, { error: "packages must be a list" });
-          return send(res, 200, { restored: await restoreApps(adb, log, packages.map(String)) });
+          return send(res, 200, await restoreApps(adb, log, packages.map(String)));
         }
         if (req.method === "GET" && url.pathname.startsWith("/api/icon/")) {
           const pkg = decodeURIComponent(url.pathname.slice("/api/icon/".length));
@@ -114,6 +123,7 @@ export function createServer(deps: ServerDeps): http.Server {
         send(res, 404, { error: "not found" });
       }
     } catch (e) {
+      if (e instanceof URIError) return send(res, 400, { error: "bad request" });
       if (e instanceof RejectedError) return send(res, 400, { error: e.message });
       if (e instanceof AdbError) return send(res, adbStatus(e.kind), { error: e.message, kind: e.kind });
       if (e instanceof SyntaxError) return send(res, 400, { error: "invalid JSON" });

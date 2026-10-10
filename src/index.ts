@@ -38,12 +38,12 @@ function realAdb(): Adb {
   const adbPath = findAdb();
   const exec: Exec = createRealExec(adbPath);
   return createAdb(exec, {
-    pullToTemp: async (_pkg, remotePath) => {
+    pullToTemp: async (_pkg, remotePath, serial) => {
       const dir = await mkdtemp(join(os.tmpdir(), "ftv-apk-"));
       const local = join(dir, "base.apk");
       try {
         await new Promise<void>((res, rej) =>
-          execFile(adbPath, ["pull", remotePath, local], { timeout: 60000, windowsHide: true }, (e) => (e ? rej(e) : res())));
+          execFile(adbPath, [...(serial ? ["-s", serial] : []), "pull", remotePath, local], { timeout: 60000, windowsHide: true }, (e) => (e ? rej(e) : res())));
         return new Uint8Array(await readFile(local));
       } finally {
         await rm(dir, { recursive: true, force: true });

@@ -23,6 +23,9 @@ export interface Adb {
 
 const HOST_RE = /^(\d{1,3}(\.\d{1,3}){3}|[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)$/;
 
+const UNAUTHORIZED_MSG = "The TV hasn't approved this computer yet. Look at the TV screen and choose Allow.";
+const UNREACHABLE_MSG = "Couldn't reach the Fire TV. Check the IP address and that ADB debugging is on.";
+
 function parsePackages(stdout: string): string[] {
   return stdout
     .split(/\r?\n/)
@@ -42,52 +45,69 @@ function needPackage(pkg: string): void {
   if (!isValidPackageName(pkg)) throw new AdbError("failed", `Invalid package name: ${pkg}`);
 }
 
-export function createAdb(exec: Exec, opts: { pullToTemp?: (pkg: string, remotePath: string) => Promise<Uint8Array> } = {}): Adb {
+export function createAdb(
+  rawExec: Exec,
+  opts: { pullToTemp?: (pkg: string, remotePath: string, serial: string | null) => Promise<Uint8Array> } = {},
+): Adb {
+  let serial: string | null = null;
+  const exec: Exec = (args) => rawExec(serial && args[0] !== "connect" ? ["-s", serial, ...args] : args);
+  const unreachable = () => new AdbError("offline", "Lost contact with the Fire TV. Check that it is on and on the same Wi-Fi.");
+
+  async function listPackages(args: string[]): Promise<string[]> {
+    const r = await exec(args);
+    const bad = classify(`${r.stdout}
+${r.stderr}`);
+    if (bad) throw new AdbError(bad, bad === "unauthorized" ? UNAUTHORIZED_MSG : "Couldn't read the app list from the Fire TV.");
+    const pkgs = parsePackages(r.stdout);
+    if (r.code !== 0 || pkgs.length === 0) throw unreachable();
+    return pkgs;
+  }
+
   return {
     async connect(host) {
       if (!HOST_RE.test(host)) throw new AdbError("failed", "That doesn't look like a valid IP address.");
       const target = `${host}:5555`;
       const r = await exec(["connect", target]);
-      const text = `${r.stdout}\n${r.stderr}`;
-      const bad = classify(text);
-      if (bad) throw new AdbError(bad, bad === "unauthorized"
-        ? "The TV hasn't approved this computer yet. Look at the TV screen and choose Allow."
-        : "Couldn't reach the Fire TV. Check the IP address and that ADB debugging is on.");
-      const state = await exec(["-s", target, "get-state"]);
-      const stateBad = classify(`${state.stdout}\n${state.stderr}`);
-      if (stateBad) throw new AdbError(stateBad, stateBad === "unauthorized"
-        ? "The TV hasn't approved this computer yet. Look at the TV screen and choose Allow."
-        : "Couldn't reach the Fire TV. Check the IP address and that ADB debugging is on.");
+      const bad = classify(`${r.stdout}
+${r.stderr}`);
+      if (bad) throw new AdbError(bad, bad === "unauthorized" ? UNAUTHORIZED_MSG : UNREACHABLE_MSG);
+      const state = await rawExec(["-s", target, "get-state"]);
+      const stateBad = classify(`${state.stdout}
+${state.stderr}`);
+      if (stateBad) throw new AdbError(stateBad, stateBad === "unauthorized" ? UNAUTHORIZED_MSG : UNREACHABLE_MSG);
+      serial = target;
     },
 
-    async installedPackages() {
-      const r = await exec(["shell", "pm", "list", "packages", "--user", "0"]);
-      return parsePackages(r.stdout);
-    },
+    installedPackages: () => listPackages(["shell", "pm", "list", "packages", "--user", "0"]),
 
     async removedPackages() {
       const [all, installed] = await Promise.all([
-        exec(["shell", "pm", "list", "packages", "-u", "--user", "0"]),
-        exec(["shell", "pm", "list", "packages", "--user", "0"]),
+        listPackages(["shell", "pm", "list", "packages", "-u", "--user", "0"]),
+        listPackages(["shell", "pm", "list", "packages", "--user", "0"]),
       ]);
-      const have = new Set(parsePackages(installed.stdout));
-      return parsePackages(all.stdout).filter((p) => !have.has(p));
+      const have = new Set(installed);
+      return all.filter((p) => !have.has(p));
     },
 
     async removeForUser(pkg) {
       needPackage(pkg);
       const r = await exec(["shell", "pm", "uninstall", "-k", "--user", "0", pkg]);
-      const text = `${r.stdout}\n${r.stderr}`;
       if (/success/i.test(r.stdout)) return;
-      throw new AdbError(classify(text) ?? "failed", `Couldn't remove ${pkg}: ${r.stdout.trim() || r.stderr.trim()}`);
+      const detail = r.stdout.trim() || r.stderr.trim();
+      // Only pm's own refusal ("Failure [...]") means the TV is still talking to us.
+      if (/failure/i.test(r.stdout)) throw new AdbError("failed", `Couldn't remove ${pkg}: ${detail}`);
+      throw new AdbError(classify(`${r.stdout}
+${r.stderr}`) ?? "offline", `Couldn't remove ${pkg}: ${detail || "no response from the TV"}`);
     },
 
     async restore(pkg) {
       needPackage(pkg);
       const r = await exec(["shell", "cmd", "package", "install-existing", "--user", "0", pkg]);
-      const text = `${r.stdout}\n${r.stderr}`;
       if (/installed for user/i.test(r.stdout)) return;
-      throw new AdbError(classify(text) ?? "failed", `Couldn't restore ${pkg}: ${r.stdout.trim() || r.stderr.trim()}`);
+      const detail = r.stdout.trim() || r.stderr.trim();
+      const kind = classify(`${r.stdout}
+${r.stderr}`) ?? (r.stdout.trim() && r.code === 0 ? "failed" : "offline");
+      throw new AdbError(kind, `Couldn't restore ${pkg}: ${detail || "no response from the TV"}`);
     },
 
     async pullApk(pkg) {
@@ -96,7 +116,7 @@ export function createAdb(exec: Exec, opts: { pullToTemp?: (pkg: string, remoteP
       const line = p.stdout.split(/\r?\n/).find((l) => l.startsWith("package:"));
       if (!line) throw new AdbError("not-found", `${pkg} is not installed`);
       if (!opts.pullToTemp) throw new AdbError("failed", "APK pulling is not configured");
-      return opts.pullToTemp(pkg, line.slice("package:".length).trim());
+      return opts.pullToTemp(pkg, line.slice("package:".length).trim(), serial);
     },
   };
 }
@@ -105,8 +125,11 @@ export function createRealExec(adbPath: string): Exec {
   return (args) =>
     new Promise((resolve) => {
       execFile(adbPath, args, { timeout: 30000, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
-        const code = err && typeof (err as NodeJS.ErrnoException & { code?: unknown }).code === "number" ? ((err as unknown as { code: number }).code) : err ? 1 : 0;
-        resolve({ stdout: String(stdout), stderr: String(stderr), code });
+        if (!err) return resolve({ stdout: String(stdout), stderr: String(stderr), code: 0 });
+        const e = err as Error & { code?: number | string; killed?: boolean };
+        const code = typeof e.code === "number" ? e.code : -1;
+        const extra = e.killed ? "adb timed out" : e.code === "ENOENT" ? "adb was not found" : "";
+        resolve({ stdout: String(stdout), stderr: `${String(stderr)}${extra ? "\n" + extra : ""}`, code });
       });
     });
 }

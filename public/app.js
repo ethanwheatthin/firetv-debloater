@@ -117,6 +117,7 @@ $("removeBtn").onclick = async () => {
     const r = await api("/api/remove", { packages: apps.filter((a) => a.selected).map((a) => a.pkg) });
     const s = $("doneSummary"); s.replaceChildren();
     s.append(el("p", { className: "ok", textContent: `Removed ${r.removed.length} app(s).` }));
+    for (const x of r.errors) s.append(el("p", { className: "warn", textContent: `Couldn't remove ${x.pkg}: ${x.reason}` }));
     for (const x of r.skipped) s.append(el("p", { className: "warn", textContent: `Skipped ${x.pkg}: ${x.reason}` }));
     if (r.failed) s.append(el("p", { className: "warn", textContent: `Stopped at ${r.failed.pkg}: ${r.failed.reason}. ${r.notAttempted.length} app(s) were not attempted.` }));
     await loadRemoved();
@@ -128,9 +129,11 @@ $("removeBtn").onclick = async () => {
 $("undoAll").onclick = async () => {
   try {
     const { apps: gone } = await api("/api/removed");
-    await api("/api/restore", { packages: gone.map((a) => a.pkg) });
+    const r = await api("/api/restore", { packages: gone.map((a) => a.pkg) });
     await loadRemoved();
-    $("doneSummary").replaceChildren(el("p", { className: "ok", textContent: "Everything has been restored." }));
+    $("doneSummary").replaceChildren(r.failed
+      ? el("p", { className: "warn", textContent: `Restored ${r.restored.length} app(s), then stopped at ${r.failed.pkg}: ${r.failed.reason}. Try Undo again.` })
+      : el("p", { className: "ok", textContent: "Everything has been restored." }));
   } catch (e) { showError(e.message); }
 };
 $("again").onclick = async () => { await loadApps(); go("choose"); };

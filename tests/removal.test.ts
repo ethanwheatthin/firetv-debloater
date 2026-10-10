@@ -68,7 +68,7 @@ describe("restoreApps", () => {
       removedPackages: async () => ["com.amazon.tv.csapp"],
       restore: async (p) => { restored.push(p); },
     });
-    const out = await restoreApps(adb, newLog(), ["com.amazon.tv.csapp"]);
+    const out = (await restoreApps(adb, newLog(), ["com.amazon.tv.csapp"])).restored;
     expect(out).toEqual(["com.amazon.tv.csapp"]);
     expect(restored).toEqual(["com.amazon.tv.csapp"]);
   });
@@ -78,5 +78,49 @@ describe("restoreApps", () => {
     const adb = mockAdb({ removedPackages: async () => ["com.amazon.tv.csapp"] });
     await restoreApps(adb, log, ["com.amazon.tv.csapp"]);
     expect(log.entries()).toEqual([]);
+  });
+});
+
+describe("review fixes", () => {
+  it("stops the batch when the TV becomes unauthorized", async () => {
+    let n = 0;
+    const adb = mockAdb({ removeForUser: async () => { if (++n === 1) throw new AdbError("unauthorized", "revoked"); } });
+    const r = await removeApps(adb, newLog(), ["com.amazon.tv.csapp", "com.amazon.ags.app"]);
+    expect(r.failed?.pkg).toBe("com.amazon.tv.csapp");
+    expect(r.notAttempted).toEqual(["com.amazon.ags.app"]);
+  });
+  it("reports a pm refusal as an error, not as skipped, and keeps going", async () => {
+    const adb = mockAdb({ removeForUser: async (p) => { if (p === "com.amazon.tv.csapp") throw new AdbError("failed", "Failure [DELETE_FAILED_INTERNAL_ERROR]"); } });
+    const r = await removeApps(adb, newLog(), ["com.amazon.tv.csapp", "com.amazon.ags.app"]);
+    expect(r.errors.map((e) => e.pkg)).toEqual(["com.amazon.tv.csapp"]);
+    expect(r.skipped).toEqual([]);
+    expect(r.removed).toEqual(["com.amazon.ags.app"]);
+  });
+  it("lists not-installed apps as skipped even after a disconnect", async () => {
+    const adb = mockAdb({
+      installedPackages: async () => ["com.amazon.tv.csapp"],
+      removeForUser: async () => { throw new AdbError("offline", "gone"); },
+    });
+    const r = await removeApps(adb, newLog(), ["com.amazon.tv.csapp", "com.amazon.ags.app"]);
+    expect(r.skipped.map((s) => s.pkg)).toEqual(["com.amazon.ags.app"]);
+  });
+  it("removes a duplicated package only once", async () => {
+    const adb = mockAdb();
+    const r = await removeApps(adb, newLog(), ["com.amazon.tv.csapp", "com.amazon.tv.csapp"]);
+    expect(adb.removed).toEqual(["com.amazon.tv.csapp"]);
+    expect(r.removed).toEqual(["com.amazon.tv.csapp"]);
+  });
+  it("restoreApps reports a partial result when the TV drops mid-undo", async () => {
+    let n = 0;
+    const adb = mockAdb({
+      removedPackages: async () => ["com.amazon.tv.csapp", "com.amazon.ags.app"],
+      restore: async () => { if (++n === 2) throw new AdbError("offline", "gone"); },
+    });
+    const r = await restoreApps(adb, newLog(), ["com.amazon.tv.csapp", "com.amazon.ags.app"]);
+    expect(r.restored).toEqual(["com.amazon.tv.csapp"]);
+    expect(r.failed?.pkg).toBe("com.amazon.ags.app");
+  });
+  it("restoreApps rejects packages that are not on the curated list", async () => {
+    await expect(restoreApps(mockAdb(), newLog(), ["com.example.other"])).rejects.toBeInstanceOf(RejectedError);
   });
 });

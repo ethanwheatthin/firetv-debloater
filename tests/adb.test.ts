@@ -77,3 +77,32 @@ describe("removeForUser / restore", () => {
     await expect(createAdb(exec).removeForUser("com.a.b")).rejects.toMatchObject({ kind: "offline" });
   });
 });
+
+describe("review fixes: errors, serial, listings", () => {
+  it("treats a dead/hung connection (no output, non-zero code) as offline when removing", async () => {
+    const { exec } = fake({ "shell pm uninstall -k --user 0 com.a.b": { stdout: "", code: -1 } });
+    await expect(createAdb(exec).removeForUser("com.a.b")).rejects.toMatchObject({ kind: "offline" });
+  });
+  it("throws when the package listing fails instead of returning an empty list", async () => {
+    const { exec } = fake({ "shell pm list packages --user 0": { stdout: "error: device offline", code: 1 } });
+    await expect(createAdb(exec).installedPackages()).rejects.toMatchObject({ kind: "offline" });
+  });
+  it("throws when the package listing comes back empty", async () => {
+    const { exec } = fake({ "shell pm list packages --user 0": { stdout: "" } });
+    await expect(createAdb(exec).installedPackages()).rejects.toBeInstanceOf(AdbError);
+  });
+  it("does not report everything as removed when the installed listing fails", async () => {
+    const { exec } = fake({
+      "shell pm list packages -u --user 0": { stdout: "package:com.a.b\n" },
+      "shell pm list packages --user 0": { stdout: "", code: 1 },
+    });
+    await expect(createAdb(exec).removedPackages()).rejects.toBeInstanceOf(AdbError);
+  });
+  it("targets the connected device with -s on every later command", async () => {
+    const { exec, calls } = fake({ "-s 192.168.1.5:5555 shell pm uninstall -k --user 0 com.a.b": { stdout: "Success" } });
+    const adb = createAdb(exec);
+    await adb.connect("192.168.1.5");
+    await adb.removeForUser("com.a.b");
+    expect(calls[calls.length - 1]).toEqual(["-s", "192.168.1.5:5555", "shell", "pm", "uninstall", "-k", "--user", "0", "com.a.b"]);
+  });
+});

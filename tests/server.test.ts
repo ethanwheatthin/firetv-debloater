@@ -87,3 +87,35 @@ describe("API", () => {
     expect(await res.text()).toContain("ok");
   });
 });
+
+describe("review fixes: cross-site protection", () => {
+  it("rejects requests with a foreign Host header (DNS rebinding)", async () => {
+    const res = await new Promise<number>((resolve) => {
+      const u = new URL(base);
+      import("node:http").then(({ default: http }) => {
+        http.get({ host: u.hostname, port: u.port, path: "/api/apps", headers: { Host: "evil.example" } }, (r) => { r.resume(); resolve(r.statusCode ?? 0); });
+      });
+    });
+    expect(res).toBe(403);
+  });
+  it("rejects POSTs from a foreign Origin", async () => {
+    calls.length = 0;
+    const res = await fetch(base + "/api/remove", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://evil.example" },
+      body: JSON.stringify({ packages: ["com.amazon.tv.csapp"] }),
+    });
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+  it("rejects POSTs that are not application/json", async () => {
+    calls.length = 0;
+    const res = await fetch(base + "/api/remove", { method: "POST", headers: { "content-type": "text/plain" }, body: JSON.stringify({ packages: ["com.amazon.tv.csapp"] }) });
+    expect(res.status).toBe(415);
+    expect(calls).toEqual([]);
+  });
+  it("returns a 400 or 404 (not 500) for a malformed URL escape", async () => {
+    const res = await fetch(base + "/%E0%A4%A");
+    expect([400, 404]).toContain(res.status);
+  });
+});
